@@ -795,6 +795,48 @@ class Import extends Factory
                             $rewrite, $connection->getTableName('url_rewrite'), array_keys($values), 1
                         )
                     );
+                    
+                    //fix need insert relations in catalog_url_rewrite_product_category for new products
+
+                    $rewrite->reset(\Zend_Db_Select::COLUMNS)
+                        ->columns(['entity_id' => '_entity_id']);
+                    $newEntities = $connection->fetchCol($rewrite);
+
+                    if($this->getCode() == 'product' && is_array($newEntities) && count($newEntities) >0){
+                        $rewriteProductCategory = clone $rewrite;
+                        $rewriteProductCategory->reset();
+                        $rewriteProductCategory->from(
+                            ['ccp' => $connection->getTableName('catalog_category_product')],
+                            ['ur.url_rewrite_id',
+                                'category_id' => 'cce.entity_id',
+                                'ccp.product_id']
+                        )->joinLeft(
+                            ['cce_main' => $connection->getTableName('catalog_category_entity')],
+                            'cce_main.entity_id = ccp.category_id',
+                            []
+                        )->joinLeft(
+                            ['cce' => $connection->getTableName('catalog_category_entity')],
+                            'find_in_set(cce.entity_id, replace(substring(cce_main.path, 3), \'/\', \',\'))',
+                            []
+                        )->joinLeft(
+                            ['ur' => $connection->getTableName('url_rewrite')],
+                            'ur.entity_id = ccp.product_id',
+                            []
+                        )->where(
+                            'ur.entity_type =?',
+                            'product'
+                        )->where(
+                            'ur.store_id =?', new Expr($store['store_id'])
+                        )->where(
+                            'ccp.product_id IN (?)',
+                            implode(',', $newEntities)
+                        );
+                        $connection->query(
+                            $connection->insertFromSelect(
+                                $rewriteProductCategory, $connection->getTableName('catalog_url_rewrite_product_category'), [], 1
+                            )
+                        );
+                    }
                 }
             }
         }
